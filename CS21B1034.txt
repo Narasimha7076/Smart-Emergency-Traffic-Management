@@ -1,0 +1,89 @@
+#define BLYNK_TEMPLATE_ID "TMPL38qUExCKr"
+#define BLYNK_TEMPLATE_NAME "Smart Emergency Traffic Management"
+#define BLYNK_AUTH_TOKEN "lOKE8tR4VYUqK04Zp3t7VGztmn9c5sbm"
+
+#include <ESP8266WiFi.h>  // Include WiFi library for ESP8266
+#include <BlynkSimpleEsp8266.h>  // Include Blynk library for ESP8266
+#include <MFRC522.h>  // Include MFRC522 RFID library
+#include <Wire.h>  // Include Wire library for I2C communication
+#include <LiquidCrystal_I2C.h>  // Include I2C communication library for LCD display
+#include <SPI.h>
+
+// #define BLYNK_AUTH_TOKEN "YourAuthToken"  // Blynk authentication token
+#define WIFI_SSID "OnePlus 11R 5G"  // WiFi SSID
+#define WIFI_PASS ""  // WiFi password
+
+#define RST_PIN D3  // Reset pin for MFRC522 RFID module (GPIO5 on ESP8266)
+#define SS_PIN D4  // Slave select pin for MFRC522 RFID module (GPIO4 on ESP8266)
+ 
+#define RED_PIN D0  // Pin for red LED (GPIO14 on ESP8266)
+#define GREEN_PIN D8  // Pin for green LED (GPIO12 on ESP8266)
+//#define BLUE_PIN D7  // Pin for blue LED (GPIO13 on ESP8266)
+
+MFRC522 mfrc522(SS_PIN, RST_PIN);  // Create an instance of the MFRC522 RFID module
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // Create an instance of the LCD display
+
+char auth[] = BLYNK_AUTH_TOKEN;  // Blynk authentication token
+char ssid[] = WIFI_SSID;  // WiFi SSID
+char pass[] = WIFI_PASS;  // WiFi password
+
+BlynkTimer timer;  // Timer for Blynk tasks
+
+bool ambulanceDetected = false;  // Flag to track if an ambulance is detected
+
+void setup() {
+  Serial.begin(115200);  // Initialize serial communication
+  SPI.begin();
+  Wire.begin();  // Initialize I2C communication
+  mfrc522.PCD_Init();  // Initialize MFRC522 RFID module
+  lcd.init();  // Initialize LCD display
+  lcd.backlight();  // Turn on LCD backlight
+  Blynk.begin(auth, ssid, pass);  // Initialize Blynk with authentication token and WiFi credentials
+  pinMode(RED_PIN, OUTPUT);  // Set pin mode for red LED
+  pinMode(GREEN_PIN, OUTPUT);  // Set pin mode for green LED
+  //pinMode(BLUE_PIN, OUTPUT);  // Set pin mode for blue LED
+}
+
+void loop() {
+  Blynk.run();  // Run Blynk tasks
+  timer.run();  // Run timer tasks
+  
+  if (mfrc522.PICC_IsNewCardPresent()) {  // Check if a new RFID card is present
+    if (mfrc522.PICC_ReadCardSerial()) {  // Read the serial number of the RFID card
+      String content = "";  // Initialize a string to store the content of the RFID card
+      for (byte i = 0; i < mfrc522.uid.size; i++) {  // Iterate through the bytes of the UID
+        content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " "));  // Concatenate a leading zero if necessary
+        content.concat(String(mfrc522.uid.uidByte[i], HEX));  // Convert each byte to hexadecimal and concatenate
+      }
+      content.toUpperCase();  // Convert the content to uppercase
+      Serial.print(content.substring(1));
+      Serial.println();
+      if (content.substring(1) == "03 36 30 C5" || content.substring(1) == "43 F5 47 F6") {  // Check if the RFID card matches the specified UID
+        ambulanceDetected = true;  // Set the flag to indicate that an ambulance is detected
+        digitalWrite(RED_PIN, LOW); // Turn off red LED
+        digitalWrite(GREEN_PIN, HIGH); // Turn on green LED
+        // digitalWrite(BLUE_PIN, LOW); // Turn off blue LED
+        lcd.clear();  // Clear the LCD display
+        lcd.setCursor(0, 0);  // Set the cursor to the first row
+        lcd.print("AMBULANCE COMING");  // Print message on LCD
+        lcd.setCursor(0, 1);  // Set the cursor to the second row
+        lcd.print("GO TO LEFT LANE");  // Print message on LCD
+        Blynk.virtualWrite(V1,"Ambulance has arrived with ID: " + content.substring(1));
+        delay(10000);
+          // Send notification to Blynk app
+      }
+    }
+  } else {
+    if (ambulanceDetected) {  // Check if an ambulance was previously detected
+      digitalWrite(GREEN_PIN, LOW); // Turn off green LED
+      digitalWrite(RED_PIN, HIGH); // Turn on red LED
+      lcd.clear();  // Clear the LCD display
+      lcd.setCursor(0, 0);  // Set the cursor to the first row
+      lcd.print("Welcome to NH-24");  // Print message on LCD
+      lcd.setCursor(0, 1);  // Set the cursor to the second row
+      lcd.print("Traffic Lights: RED");  // Print message on LCD
+      ambulanceDetected = false;  // Reset the flag
+      Blynk.virtualWrite(V1, "No Ambulance has detected");
+    }
+  }
+}
